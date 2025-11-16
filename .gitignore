@@ -1,1 +1,3 @@
-/target
+mnt/
+target/
+third_party/
