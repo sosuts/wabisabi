@@ -1,51 +1,63 @@
+// 標準ライブラリを使わず、エントリポイントを自分で定義することを示。
+// UEFIのようなOS外環境で必要
 #![no_std]
 #![no_main]
+// 構造体のフィールドのオフセットを取得するためのunstable機能を有効化
 #![feature(offset_of)]
 
 use core::arch::asm;
+use core::cmp::min;
 use core::mem::offset_of;
 use core::mem::size_of;
 use core::panic::PanicInfo;
 use core::ptr::null_mut;
-use core::slice;
 
+/// EFI関連の型定義
 type EfiVoid = u8;
+/// EFIハンドルの型定義
 type EfiHandle = u64;
+/// エラー時に静的文字列を返すResult型
 type Result<T> = core::result::Result<T, &'static str>;
 
+/// UEFIのブートサービステーブルの一部をRustで再現
 #[repr(C)]
 struct EfiBootServicesTable {
+    // 未使用領域（UEFI仕様に合わせるためのダミー）
     _reserved0: [u64; 40],
+    // プロトコル検索用の関数ポインタ
     locate_protocol: extern "win64" fn(
         protocol: *const EfiGuid,
         registration: *const EfiVoid,
         interface: *mut *mut EfiVoid,
     ) -> EfiStatus,
 }
-const _: () = assert!(offset_of!(EfiBootServicesTable, locate_protocol) == 320);
+// フィールドが構造体の先頭から320バイト目にあることをコンパイル時に保証
+const _: () = assert!(offset_of!(EfiBootServicesTable, locate_protocol) == size_of::<u64>() * 40);
 
+/// UEFIのシステムテーブルの一部
 #[repr(C)]
 struct EfiSystemTable {
     _reserved0: [u64; 12],
     pub boot_services: &'static EfiBootServicesTable,
 }
-const _: () = assert!(offset_of!(EfiSystemTable, boot_services) == 96);
+const _: () = assert!(offset_of!(EfiSystemTable, boot_services) == size_of::<u64>() * 12);
 
 const EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID: EfiGuid = EfiGuid {
-    data0: 0x9042a9de,
-    data1: 0x23dc,
-    data2: 0x4a38,
-    data3: [0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a],
+    data0: 0x9042a9de,                                       // 4 bytes
+    data1: 0x23dc,                                           // 2 bytes
+    data2: 0x4a38,                                           // 2 bytes
+    data3: [0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a], // 8 bytes
 };
 
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct EfiGuid {
-    pub data0: u32,
-    pub data1: u16,
-    pub data2: u16,
-    pub data3: [u8; 8],
+    pub data0: u32,     // 4 bytes
+    pub data1: u16,     // 2 bytes
+    pub data2: u16,     // 2 bytes
+    pub data3: [u8; 8], // 8 bytes
 }
+const _: () = assert!(size_of::<EfiGuid>() == 16);
 
 #[repr(C)]
 #[derive(Debug)]
@@ -98,22 +110,28 @@ enum EfiStatus {
     Success = 1,
 }
 
+// HLT命令を実行する関数
 pub fn hlt() {
     unsafe { asm!("hlt") };
 }
 
 #[no_mangle]
 fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
-    let efi_graphics_output_protocol = locate_graphic_protocol(efi_system_table).unwrap();
-    let vram_addr = efi_graphics_output_protocol.mode.frame_buffer_base;
-    let vram_byte_size = efi_graphics_output_protocol.mode.frame_buffer_size;
-    let vram = unsafe {
-        slice::from_raw_parts_mut(vram_addr as *mut u32, vram_byte_size / size_of::<u32>())
-    };
-    for e in vram {
-        *e = 0xffffff;
+    let mut vram = init_vram(efi_system_table).expect("init_vram failed");
+    for y in 0..vram.height() {
+        for x in 0..vram.width() {
+            if let Some(pixel) = vram.pixel_at_mut(x, y) {
+                *pixel = 0x00ff00;
+            }
+        }
     }
-    // println!("Hello, world!");
+    for y in 0..vram.height() / 2 {
+        for x in 0..vram.width() / 2 {
+            if let Some(pixel) = vram.pixel_at_mut(x, y) {
+                *pixel = 0xff0000;
+            }
+        }
+    }
     loop {
         hlt()
     }
@@ -122,4 +140,66 @@ fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     loop {}
+}
+
+trait Bitmap {
+    fn bytes_per_pixel(&self) -> i64;
+    fn pixels_per_line(&self) -> i64;
+    fn width(&self) -> i64;
+    fn height(&self) -> i64;
+    fn buf_mut(&mut self) -> *mut u8;
+    unsafe fn unchecked_pixel_at_mut(&mut self, x: i64, y: i64) -> *mut u32 {
+        self.buf_mut()
+            .add(((y * self.pixels_per_line() + x) * self.bytes_per_pixel()) as usize)
+            as *mut u32
+    }
+    fn pixel_at_mut(&mut self, x: i64, y: i64) -> Option<&mut u32> {
+        if self.is_in_x_range(x) && self.is_in_y_range(y) {
+            unsafe { Some(&mut *(self.unchecked_pixel_at_mut(x, y))) }
+        } else {
+            None
+        }
+    }
+    fn is_in_x_range(&self, px: i64) -> bool {
+        0 <= px && px < min(self.width(), self.pixels_per_line())
+    }
+    fn is_in_y_range(&self, py: i64) -> bool {
+        0 <= py && py < self.height()
+    }
+}
+
+#[derive(Clone, Copy)]
+struct VramBufferInfo {
+    buf: *mut u8,
+    width: i64,
+    height: i64,
+    pixels_per_line: i64,
+}
+
+impl Bitmap for VramBufferInfo {
+    fn bytes_per_pixel(&self) -> i64 {
+        4
+    }
+    fn pixels_per_line(&self) -> i64 {
+        self.pixels_per_line
+    }
+    fn width(&self) -> i64 {
+        self.width
+    }
+    fn height(&self) -> i64 {
+        self.height
+    }
+    fn buf_mut(&mut self) -> *mut u8 {
+        self.buf
+    }
+}
+
+fn init_vram(efi_system_table: &EfiSystemTable) -> Result<VramBufferInfo> {
+    let gp = locate_graphic_protocol(efi_system_table)?;
+    Ok(VramBufferInfo {
+        buf: gp.mode.frame_buffer_base as *mut u8,
+        width: gp.mode.info.horizontal_resolution as i64,
+        height: gp.mode.info.vertical_resolution as i64,
+        pixels_per_line: gp.mode.info.pixels_per_scan_line as i64,
+    })
 }
