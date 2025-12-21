@@ -33,7 +33,9 @@ struct EfiBootServicesTable {
         descriptor_size: *mut usize,
         descriptor_version: *mut u32,
     ) -> EfiStatus,
-    _reserved1: [u64; 32],
+    _reserved1: [u64; 21],
+    exit_boot_services: extern "win64" fn(image_handle: EfiHandle, map_key: usize) -> EfiStatus,
+    _reserved4: [u64; 10],
     // プロトコル検索用の関数ポインタ
     locate_protocol: extern "win64" fn(
         protocol: *const EfiGuid,
@@ -53,6 +55,8 @@ impl EfiBootServicesTable {
     }
 }
 const _: () = assert!(offset_of!(EfiBootServicesTable, get_memory_map) == size_of::<u64>() * 7);
+const _: () =
+    assert!(offset_of!(EfiBootServicesTable, exit_boot_services) == size_of::<u64>() * 29);
 // フィールドが構造体の先頭から320バイト目にあることをコンパイル時に保証
 const _: () = assert!(offset_of!(EfiBootServicesTable, locate_protocol) == size_of::<u64>() * 40);
 
@@ -241,7 +245,8 @@ fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
         "Total: {total_memory_pages} pages = {total_memory_size_mib} MiB"
     )
     .unwrap();
-
+    exit_from_efi_boot_services(_image_handle, efi_system_table, &mut memory_map);
+    writeln!(w, "Hello, Non-UEFI world").unwrap();
     loop {
         hlt()
     }
@@ -265,6 +270,22 @@ fn draw_test_pattern<T: Bitmap>(buf: &mut T) {
     }
     draw_str_fg(buf, left, h * colors.len() as i64, 0x00ff00, "0123456789");
     draw_str_fg(buf, left, h * colors.len() as i64 + 16, 0x00ff00, "ABCDEF");
+}
+
+fn exit_from_efi_boot_services(
+    image_handle: EfiHandle,
+    efi_system_table: &EfiSystemTable,
+    memory_map: &mut MemoryMapHolder,
+) {
+    loop {
+        let status = efi_system_table.boot_services.get_memory_map(memory_map);
+        assert_eq!(status, EfiStatus::Success);
+        let status =
+            (efi_system_table.boot_services.exit_boot_services)(image_handle, memory_map.map_key);
+        if status == EfiStatus::Success {
+            break;
+        }
+    }
 }
 
 #[panic_handler]
