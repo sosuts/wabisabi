@@ -69,6 +69,19 @@ pub struct EfiMemoryDescriptor {
     pub number_of_pages: u64,
     attribute: u64,
 }
+
+impl EfiMemoryDescriptor {
+    pub fn memory_type(&self) -> EfiMemoryType {
+        self.memory_type
+    }
+    pub fn number_of_pages(&self) -> u64 {
+        self.number_of_pages
+    }
+    pub fn physical_start(&self) -> u64 {
+        self.physical_start
+    }
+}
+
 #[repr(i64)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[allow(non_camel_case_types)]

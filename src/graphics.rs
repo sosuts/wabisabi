@@ -7,7 +7,7 @@ pub trait Bitmap {
     fn width(&self) -> i64;
     fn height(&self) -> i64;
     fn buf_mut(&mut self) -> *mut u8;
-    // # Safety
+    /// # Safety
     /// この関数を呼び出す前に、xとyが有効な範囲内であることを保証してください。
     unsafe fn unchecked_pixel_at_mut(&mut self, x: i64, y: i64) -> *mut u32 {
         self.buf_mut()
