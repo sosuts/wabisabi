@@ -17,9 +17,19 @@ pub fn round_up_to_nearest_pow2(v: usize) -> Result<usize> {
         .checked_shl(usize::BITS - v.wrapping_sub(1).leading_zeros())
         .ok_or("Out of range")
 }
+
 #[test_case]
 fn round_up_to_nearest_pow2_tests() {
-    unimplemented!("未実装だから失敗")
+    assert_eq!(round_up_to_nearest_pow2(0), Err("Out of range"));
+    assert_eq!(round_up_to_nearest_pow2(1).unwrap(), 1);
+    assert_eq!(round_up_to_nearest_pow2(2).unwrap(), 2);
+    assert_eq!(round_up_to_nearest_pow2(3).unwrap(), 4);
+    assert_eq!(round_up_to_nearest_pow2(4).unwrap(), 4);
+    assert_eq!(round_up_to_nearest_pow2(5).unwrap(), 8);
+    assert_eq!(round_up_to_nearest_pow2(6).unwrap(), 8);
+    assert_eq!(round_up_to_nearest_pow2(7).unwrap(), 8);
+    assert_eq!(round_up_to_nearest_pow2(8).unwrap(), 8);
+    assert_eq!(round_up_to_nearest_pow2(9).unwrap(), 16);
 }
 
 /// Vertical bar `|`はヘッダーがあるチャンクを示す

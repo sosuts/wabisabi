@@ -8,7 +8,6 @@ use core::panic::PanicInfo;
 use core::writeln;
 use wabisabi::graphics::{draw_test_pattern, fill_rect, Bitmap};
 use wabisabi::qemu::{exit_qemu, QemuExitCode};
-use wabisabi::serial::SerialPort;
 use wabisabi::uefi::{
     init_vram, EfiHandle, EfiMemoryType, EfiStatus, EfiSystemTable, MemoryMapHolder, VramTextWriter,
 };
@@ -16,8 +15,6 @@ use wabisabi::x86::hlt;
 
 #[no_mangle]
 fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
-    let mut sw = SerialPort::new_for_com1();
-    writeln!(sw, "Hello via serial port").unwrap();
     let mut vram = init_vram(efi_system_table).expect("init_vram failed");
     let vw = vram.width();
     let vh = vram.height();
